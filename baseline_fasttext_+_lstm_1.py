@@ -12,10 +12,7 @@ Original file is located at
 !pip install optuna
 !pip install seaborn matplotlib
 !pip install imbalanced-learn
-!pip install spacy
-!python -m spacy download en_core_web_lg
 !pip install contractions
-!pip install category_encoders
 
 from google.colab import drive
 drive.mount('/content/drive')
@@ -30,14 +27,14 @@ from tensorflow.keras.layers import LSTM, Dropout, Dense, Embedding
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.initializers import Constant
-import spacy
-import contractions
-from spacy.lang.en.stop_words import STOP_WORDS
+import nltk
 import re
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
 from sklearn.utils import resample
 import seaborn as sns
 import matplotlib.pyplot as plt
-from category_encoders import TargetEncoder
+import contractions
 
 train = pd.read_csv('/content/drive/MyDrive/competition/Court_Judgment/train.csv')
 test = pd.read_csv('/content/drive/MyDrive/competition/Court_Judgment/test.csv')
@@ -58,9 +55,11 @@ subset_1_downsampled = resample(subset_1,
 
 train = pd.concat([subset_0, subset_1_downsampled])
 
-nlp = spacy.load('en_core_web_lg')
+nltk.download('wordnet')
+nltk.download('punkt')
+nltk.download('stopwords')
 
-train
+lemmatizer = WordNetLemmatizer()
 
 def preprocess_text(text):
     # Convert NaNs to empty strings
@@ -82,17 +81,15 @@ def preprocess_text(text):
     # Remove extra spaces
     text = re.sub(r'\s+', ' ', text)
 
-    # Tokenize the text and perform lemmatization
-    doc = nlp(text)
-    tokens = [token.lemma_ for token in doc]
+    # Tokenize the text
+    tokens = nltk.word_tokenize(text)
 
-    # Remove stopwords
-    tokens = [token for token in tokens if token not in STOP_WORDS]
+    # Remove stopwords and apply lemmatization
+    tokens = [lemmatizer.lemmatize(token) for token in tokens if token not in stopwords.words('english')]
 
     # Rephrase text (if needed)
     # Example: Replace certain phrases or expressions with their corresponding representations
     # tokens = [rephrase(token) for token in tokens]
-
     return tokens
 
 train['facts'] = train['facts'].apply(preprocess_text)
@@ -107,8 +104,6 @@ all_texts = train['facts'].tolist() + train['first_party'].tolist() + train['sec
 
 train['word_count'] = train['facts'].apply(lambda x: len(str(x).split()))
 test['word_count'] = test['facts'].apply(lambda x: len(str(x).split()))
-
-train
 
 # Visualize the word count distribution
 plt.figure(figsize=(10, 6))
@@ -156,35 +151,15 @@ def get_vector(model, texts):
             vectors.append(np.zeros(model.vector_size))
     return np.array(vectors)
 
-# Convert lists to string representations
-train['first_party'] = train['first_party'].apply(lambda x: str(x))
-train['second_party'] = train['second_party'].apply(lambda x: str(x))
-test['first_party'] = test['first_party'].apply(lambda x: str(x))
-test['second_party'] = test['second_party'].apply(lambda x: str(x))
-
-# Target encoding
-encoder = TargetEncoder(cols=['first_party', 'second_party'])
-train_encoded = encoder.fit_transform(train.drop('first_party_winner', axis=1), train['first_party_winner'])
-test_encoded = encoder.transform(test)
-
-train['first_party'] = train_encoded['first_party']
-train['second_party'] = train_encoded['second_party']
-test['first_party'] = test_encoded['first_party']
-test['second_party'] = test_encoded['second_party']
-
 X_train_facts = get_vector(fasttext_model, train['facts'])
-X_train_party1 = train['first_party']
-X_train_party2 = train['second_party']
-X_train_party1 = X_train_party1.values.reshape(-1, 1)
-X_train_party2 = X_train_party2.values.reshape(-1, 1)
+X_train_party1 = get_vector(fasttext_model, train['first_party'])
+X_train_party2 = get_vector(fasttext_model, train['second_party'])
 X_train = np.concatenate([X_train_party1, X_train_party2, X_train_facts], axis=1)
 Y_train = train['first_party_winner']
 
 X_test_facts = get_vector(fasttext_model, test['facts'])
-X_test_party1 = test['first_party']
-X_test_party2 = test['second_party']
-X_test_party1 = X_test_party1.values.reshape(-1, 1)
-X_test_party2 = X_test_party2.values.reshape(-1, 1)
+X_test_party1 = get_vector(fasttext_model, test['first_party'])
+X_test_party2 = get_vector(fasttext_model, test['second_party'])
 X_test = np.concatenate([X_test_party1,X_test_party2, X_test_facts], axis=1)
 
 X_train, X_val, Y_train, Y_val = train_test_split(X_train, Y_train, test_size=0.2, random_state=123)
@@ -232,7 +207,7 @@ def objective(trial):
 
 # Define the study and optimize the objective function
 study = optuna.create_study(direction='maximize')
-study.optimize(objective, n_trials=10)
+study.optimize(objective, n_trials=50)
 
 # Print the best hyperparameters and objective value
 best_params = study.best_params
