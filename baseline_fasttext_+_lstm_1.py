@@ -12,6 +12,7 @@ Original file is located at
 !pip install optuna
 !pip install seaborn matplotlib
 !pip install imbalanced-learn
+!pip install contractions
 
 from google.colab import drive
 drive.mount('/content/drive')
@@ -33,6 +34,7 @@ from nltk.corpus import stopwords
 from sklearn.utils import resample
 import seaborn as sns
 import matplotlib.pyplot as plt
+import contractions
 
 train = pd.read_csv('/content/drive/MyDrive/competition/Court_Judgment/train.csv')
 test = pd.read_csv('/content/drive/MyDrive/competition/Court_Judgment/test.csv')
@@ -40,6 +42,8 @@ test = pd.read_csv('/content/drive/MyDrive/competition/Court_Judgment/test.csv')
 """## Data Preprocessing w/ FastText"""
 
 (train['first_party_winner'] == 0).sum()
+
+(train['first_party_winner'] == 1).sum()
 
 subset_0 = train[train["first_party_winner"] == 0]
 subset_1 = train[train["first_party_winner"] == 1]
@@ -61,14 +65,31 @@ def preprocess_text(text):
     # Convert NaNs to empty strings
     if pd.isnull(text):
         text = ''
+
+    # Expand contractions
+    text = contractions.fix(text)
+
     # Remove punctuation
     text = re.sub(r'[^\w\s]', '', text)
+
     # Convert text to lowercase
     text = text.lower()
+
+    # Remove words and digits containing digits
+    text = re.sub(r'\w*\d\w*', '', text)
+
+    # Remove extra spaces
+    text = re.sub(r'\s+', ' ', text)
+
     # Tokenize the text
     tokens = nltk.word_tokenize(text)
+
     # Remove stopwords and apply lemmatization
     tokens = [lemmatizer.lemmatize(token) for token in tokens if token not in stopwords.words('english')]
+
+    # Rephrase text (if needed)
+    # Example: Replace certain phrases or expressions with their corresponding representations
+    # tokens = [rephrase(token) for token in tokens]
     return tokens
 
 train['facts'] = train['facts'].apply(preprocess_text)
